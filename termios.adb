@@ -29,8 +29,9 @@ procedure Termios is
    STDIN_FILENO : constant int := 0;
    TCSAFLUSH    : constant int := 2;
 
-   ESC_CODE     : constant Character := Character'Val (16#1B#);
-   CR_CODE      : constant Character := Character'Val (16#0D#);
+   ESC_CODE      : constant Character := Character'Val (16#1B#);
+   CR_CODE       : constant Character := Character'Val (16#0D#);
+   NEW_LINE_CODE : constant Character := Character'Val (16#0A#);
 
    Not_A_Terminal          : exception;
    Failed_To_Get_Tc_Attrib : exception;
@@ -45,7 +46,9 @@ procedure Termios is
    Saved_Termios, Current_Termios : termios;
    Buffer                         : Buffer_Str;
    Pos                            : Buffer_Pos := 1;
-   Read_Char                      : Character;
+   Read_Char                      : Character := Character'Val (0);
+   Line_Count                     : Positive := 1;
+   Line_Buffer                    : String := ": ";
 begin
    if System.CRTL.IsAtty (Integer (STDIN_FILENO)) /= 1 then
       raise Not_A_Terminal with "Please use a real terminal.";
@@ -64,23 +67,29 @@ begin
       raise Failed_To_Set_Tc_Attrib with "Failed to set terminal attributes (tcsetattr).";
    end if;
 
-   while Read_Char /= ESC_CODE loop
+   loop
       case Read_Char is
+         when ESC_CODE => exit;
          when CR_CODE =>
             Buffer (Buffer_Pos'First .. Pos) := (others => ' ');
             Pos := Buffer_Pos'First;
+            Line_Count := @ + 1;
+            
+            if Integer (System.CRTL.write (Integer (STDIN_FILENO), NEW_LINE_CODE'Address, 1)) = -1 then
+               raise Failed_To_Write with "Failed to write to STDIN CR_CODE.";
+            end if;
             
             if Integer (System.CRTL.write (Integer (STDIN_FILENO), Buffer'Address, Buffer'Length)) = -1 then
                raise Failed_To_Write with "Failed to write to STDIN Buffer.";
             end if;
-            
+
             if Integer (System.CRTL.write (Integer (STDIN_FILENO), CR_CODE'Address, 1)) = -1 then
                raise Failed_To_Write with "Failed to write to STDIN CR_CODE.";
             end if;
          when others => 
             Buffer (Pos) := Read_Char;
             Pos := (if @ = Buffer_Pos'Last then Buffer_Pos'First else @ + 1);
-      
+
             if Integer (System.CRTL.write (Integer (STDIN_FILENO), Buffer'Address, Buffer'Length)) = -1 then
                raise Failed_To_Write with "Failed to write to STDIN Buffer.";
             end if;
@@ -89,6 +98,13 @@ begin
                raise Failed_To_Write with "Failed to write to STDIN CR_CODE.";
             end if;
       end case;
+      if Integer (System.CRTL.write (Integer (STDIN_FILENO), Line_Count'Image'Address, Line_Count'Image'Length)) = -1 then
+         raise Failed_To_Write with "Failed to write to STDIN CR_CODE.";
+      end if;
+
+      if Integer (System.CRTL.write (Integer (STDIN_FILENO), Line_Buffer'Address, Line_Buffer'Length)) = -1 then
+         raise Failed_To_Write with "Failed to write to STDIN CR_CODE.";
+      end if;
 
       if Integer (System.CRTL.read (Integer (STDIN_FILENO), Read_Char'Address, 1)) = -1 then
          raise Failed_To_Read with "Failed to read from STDIN to Read_Char.";
